@@ -1,0 +1,92 @@
+# Full backend stack for a single-host deploy: postgres, redis, api, worker.
+# The two Next.js apps (apps/web, apps/dashboard) are meant for Vercel (or any
+# Node host) instead — see the root README. This compose file is the backend
+# half of "ready to deploy."
+#
+# Usage:
+#   cp .env.example .env        # then edit DATABASE_URL/REDIS_URL to match below if needed
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml run --rm migrate
+#
+# Uses its own Compose project name so it never shares containers, networks,
+# or volumes with docker-compose.yml (the local-dev postgres+redis) even when
+# run from the same directory — the two are separate stacks, not layers.
+name: pulsewatch-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pulsewatch
+      POSTGRES_PASSWORD: pulsewatch
+      POSTGRES_DB: pulsewatch
+    volumes:
+      - pulsewatch_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulsewatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # One-off: applies Prisma migrations against `postgres`. Run this once after
+  # `up -d` (and again after any schema change) — it isn't part of the normal
+  # start flow because migrations shouldn't re-run on every container restart.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    working_dir: /app/packages/db
+    entrypoint: ["pnpm", "run", "migrate:deploy"]
+    environment:
+      DATABASE_URL: postgresql://pulsewatch:pulsewatch@postgres:5432/pulsewatch?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://pulsewatch:pulsewatch@postgres:5432/pulsewatch?schema=public
+      REDIS_URL: redis://redis:6379
+      API_PORT: 4000
+      NODE_ENV: production
+      # CORS_ORIGIN: https://pulsewatch.io,https://app.pulsewatch.io
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pulsewatch:pulsewatch@postgres:5432/pulsewatch?schema=public
+      REDIS_URL: redis://redis:6379
+      WORKER_CONCURRENCY: 10
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pulsewatch_pg_data:

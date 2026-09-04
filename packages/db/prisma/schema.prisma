@@ -1,0 +1,47 @@
+// Prisma schema for PulseWatch — multi-region uptime/latency monitoring
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CheckStatus {
+  UP
+  DOWN
+}
+
+/// A monitored endpoint, checked from one or more regions on a fixed interval.
+model Monitor {
+  id                 String   @id @default(cuid())
+  name               String
+  url                String
+  /// Regions this monitor is checked from, e.g. ["us-east", "eu-west", "ap-south"]
+  regions            String[]
+  expectedStatusCode Int      @default(200)
+  intervalSeconds    Int      @default(60)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  checks             Check[]
+
+  @@index([createdAt])
+}
+
+/// A single time-series datapoint produced by the worker for a monitor/region pair.
+model Check {
+  id         String      @id @default(cuid())
+  monitorId  String
+  monitor    Monitor     @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  region     String
+  status     CheckStatus
+  latencyMs  Int
+  statusCode Int?
+  checkedAt  DateTime    @default(now())
+
+  @@index([monitorId, checkedAt])
+  @@index([monitorId, region, checkedAt])
+}
