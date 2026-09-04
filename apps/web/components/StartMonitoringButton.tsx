@@ -8,7 +8,7 @@ interface StartMonitoringButtonProps {
 }
 
 // Where the dashboard app (apps/dashboard) lives — override in .env.local
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3001';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://pulsewatch-dashboard.vercel.app';
 
 export default function StartMonitoringButton({
   className = '',
