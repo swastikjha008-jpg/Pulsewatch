@@ -36,10 +36,6 @@ Monitor endpoint health from selected regions, capture response-time data, persi
 
 <br/>
 
-<p align="center">
-  <img src="docs/pulsewatch-architecture.png" alt="PulseWatch Architecture" />
-</p>
-
 ---
 
 ## ✨ What is PulseWatch?
