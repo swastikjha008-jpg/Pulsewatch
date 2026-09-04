@@ -1,242 +1,512 @@
-# pulsewatch
+<div align="center">
 
-Multi-region uptime & latency monitoring. Turborepo (pnpm) monorepo containing
-the marketing site, the product dashboard, and the backend that runs the
-checks.
+# ⚡ PulseWatch
 
-**Flow:** `apps/web` (landing page) → "Start Monitoring" → `apps/dashboard`
-(the product) → talks to `apps/api`, which is backed by `apps/worker` polling
-your monitors and `packages/db`/`packages/queue` underneath.
+### Modern uptime monitoring & alerting for websites, APIs, and services
 
-```
-apps/
-  web/         Next.js — marketing landing page                    :3000
-  dashboard/   Next.js — the actual product (monitors, charts)      :3001
-  api/         Express — Monitor CRUD + schedules checks            :4000
-  worker/      BullMQ consumer — runs the HTTP checks, writes Check rows
-packages/
-  db/          Prisma schema + shared PrismaClient
-  queue/       Shared BullMQ/ioredis config (queue name, job shape)
-```
+Monitor endpoint health from selected regions, capture response-time data, persist check history, and process scheduled checks through a queue-backed worker architecture.
 
-`apps/web` and `apps/dashboard` are plain Next.js apps that only ever talk to
-`apps/api` over HTTP (`NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_APP_URL`) — they
-don't import Prisma or anything backend-specific, so they can be deployed
-completely independently of the backend (e.g. on Vercel) with zero coupling.
+<br/>
+
+[![Status](https://img.shields.io/badge/status-active%20development-8B5CF6?style=for-the-badge\&labelColor=1E1033)](#-project-status)
+[![Monorepo](https://img.shields.io/badge/monorepo-Turborepo-9333EA?style=for-the-badge\&logo=turborepo\&logoColor=white)](#-monorepo-structure)
+[![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-F69220?style=for-the-badge\&logo=pnpm\&logoColor=white)](#-development-commands)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge\&logo=docker\&logoColor=white)](#-docker-setup)
+
+</div>
+
+<br/>
+
+<div align="center">
+
+[![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge\&logo=next.js\&logoColor=white)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge\&logo=react\&logoColor=61DAFB)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge\&logo=typescript\&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge\&logo=tailwindcss\&logoColor=white)](https://tailwindcss.com/)
+[![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge\&logo=node.js\&logoColor=white)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge\&logo=express\&logoColor=white)](https://expressjs.com/)
+[![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?style=for-the-badge\&logo=socket.io\&logoColor=white)](https://socket.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge\&logo=postgresql\&logoColor=white)](https://www.postgresql.org/)
+[![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge\&logo=prisma\&logoColor=white)](https://www.prisma.io/)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge\&logo=redis\&logoColor=white)](https://redis.io/)
+[![BullMQ](https://img.shields.io/badge/BullMQ-EA4B71?style=for-the-badge)](https://bullmq.io/)
+[![Docker Compose](https://img.shields.io/badge/Docker%20Compose-2496ED?style=for-the-badge\&logo=docker\&logoColor=white)](https://docs.docker.com/compose/)
+
+</div>
+
+<br/>
+
+<p align="center">
+  <img src="docs/pulsewatch-architecture.png" alt="PulseWatch Architecture" />
+</p>
 
 ---
 
-## Quick start — everything at once
+## ✨ What is PulseWatch?
 
-### 1. Prerequisites
+PulseWatch is a monitoring platform built around one core job: **keep checking important endpoints and make their health measurable**.
 
-- Node.js ≥ 18.17
-- pnpm (`npm install -g pnpm` if you don't have it)
-- Docker (for local Postgres + Redis)
+The system separates user-facing applications from scheduled monitoring work:
 
-### 2. Install
+* the web app presents the product
+* the dashboard manages monitors and displays monitoring data
+* the API handles application requests and real-time communication
+* BullMQ + Redis schedule and distribute monitoring jobs
+* the worker performs the actual endpoint checks
+* PostgreSQL stores persistent monitoring data through Prisma
+
+This separation keeps scheduled checks out of the API request path and gives the monitoring workload its own processing layer.
+
+---
+
+## 🚀 Key Features
+
+| Capability                       | What PulseWatch provides                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| **Uptime monitoring**            | Tracks whether configured endpoints are responding successfully                |
+| **Monitor management**           | Create and manage monitored endpoints from the dashboard                       |
+| **Regional monitoring**          | Associate monitoring checks with selected regions                              |
+| **Scheduled checks**             | Run checks through BullMQ repeatable jobs rather than an in-process timer loop |
+| **Latency tracking**             | Record response-time measurements for monitoring history                       |
+| **Uptime history**               | Persist historical check results for later inspection                          |
+| **Monitor status**               | Surface the current health state of monitored endpoints                        |
+| **Background processing**        | Execute checks in a dedicated worker process                                   |
+| **Persistent storage**           | Store monitoring data in PostgreSQL through Prisma                             |
+| **Queue-backed scheduling**      | Use Redis and BullMQ for durable job scheduling and worker communication       |
+| **Containerized infrastructure** | Run the local service dependencies with Docker Compose                         |
+
+---
+
+## 🏗️ Architecture
+
+PulseWatch uses a queue-backed distributed worker model:
+
+```mermaid
+flowchart TD
+    U[User] --> W[Web]
+    U --> D[Dashboard]
+
+    W --> A[API]
+    D --> A
+
+    A --> R[(Redis)]
+    A --> P[(PostgreSQL)]
+
+    R --> Q[BullMQ]
+    Q --> WK[Worker]
+
+    WK --> E[External Monitored Endpoint]
+    WK --> P
+```
+
+### Why the worker exists
+
+Monitoring is intentionally separated from the HTTP API.
+
+Instead of repeatedly polling endpoints with a naive `setInterval()` loop, PulseWatch creates **deterministic BullMQ repeatable jobs for each monitor/region combination**. Redis handles the queue and scheduling layer, while the worker consumes those jobs and performs the checks.
+
+That gives the system a clean separation between:
+
+**request handling → job scheduling → background execution → persistence**
+
+---
+
+## 🔄 Monitoring Flow
+
+```text
+Create / update monitor
+        │
+        ▼
+      API
+        │
+        ▼
+Create deterministic repeatable job
+for the monitor + region
+        │
+        ▼
+   Redis / BullMQ
+        │
+        ▼
+      Worker
+        │
+        ▼
+Check external endpoint
+        │
+        ├───────────────┐
+        ▼               ▼
+    Healthy            Failed
+        │               │
+        └──────┬────────┘
+               ▼
+       Record check result
+               │
+               ▼
+          PostgreSQL
+               │
+               ▼
+          Dashboard
+```
+
+---
+
+## 📁 Monorepo Structure
+
+```text
+pulsewatch/
+│
+├── apps/
+│   ├── web/             # Landing / marketing website
+│   ├── dashboard/       # Monitoring dashboard
+│   ├── api/             # REST API + real-time communication
+│   └── worker/          # Background monitoring worker
+│
+├── packages/
+│   ├── db/              # Prisma + PostgreSQL data layer
+│   └── queue/           # Redis + BullMQ queue logic
+│
+├── docs/
+│   └── pulsewatch-architecture.png
+│
+├── docker-compose.yml
+├── docker-compose.prod.yml
+├── pnpm-workspace.yaml
+├── turbo.json
+└── package.json
+```
+
+---
+
+## 🧩 How Each Application Works
+
+### `apps/web`
+
+The public-facing PulseWatch website.
+
+It is responsible for the product/marketing experience and is built with Next.js, React, TypeScript, and Tailwind CSS.
+
+### `apps/dashboard`
+
+The application used to interact with the monitoring system.
+
+It provides the monitoring UI for managing monitors and viewing operational data such as status, uptime history, response time, and regions.
+
+### `apps/api`
+
+The central application service.
+
+Responsibilities include:
+
+* REST API endpoints
+* monitor management
+* monitoring configuration
+* job scheduling integration
+* monitoring data access
+* real-time communication through the API layer
+
+### `apps/worker`
+
+The background execution service.
+
+The worker:
+
+* consumes BullMQ jobs
+* executes scheduled endpoint checks
+* handles monitor/region check execution
+* records the resulting monitoring data
+
+The worker runs independently from the API so monitoring work does not block normal application requests.
+
+---
+
+## 🗄️ Data Layer
+
+### PostgreSQL
+
+PostgreSQL is the persistent store for monitoring data.
+
+Prisma provides the database access layer and schema management for the application.
+
+```text
+Application / Worker
+        │
+        ▼
+      Prisma
+        │
+        ▼
+   PostgreSQL
+```
+
+The database is responsible for the data that must survive process restarts, including monitor configuration and historical monitoring results.
+
+### Redis
+
+Redis powers the queue and scheduling layer.
+
+```text
+API
+ │
+ ▼
+Redis
+ │
+ ▼
+BullMQ
+ │
+ ▼
+Worker
+```
+
+Redis is used for job scheduling, queue state, and worker communication.
+
+---
+
+## ⏱️ Queue & Worker Architecture
+
+A key implementation detail in PulseWatch is the use of **BullMQ repeatable jobs**.
+
+For each **monitor + region** combination, the system can create a deterministic repeatable job. The queue determines when the work should run, and the worker performs the check.
+
+This is intentionally different from:
+
+```ts
+setInterval(checkMonitor, interval)
+```
+
+The monitoring lifecycle is instead conceptually:
+
+```text
+Monitor + Region
+       │
+       ▼
+Deterministic Job ID
+       │
+       ▼
+BullMQ Repeatable Job
+       │
+       ▼
+Redis
+       │
+       ▼
+Worker
+       │
+       ▼
+Endpoint Check
+       │
+       ▼
+Persist Result
+```
+
+This keeps scheduling concerns in the queue layer and execution concerns in the worker.
+
+---
+
+## 🔐 Environment Variables
+
+PulseWatch reads its runtime configuration from environment files created from the repository's `.env.example`.
+
+Core variables include:
+
+```env
+DATABASE_URL="postgresql://..."
+REDIS_URL="redis://..."
+API_PORT=4000
+WORKER_CONCURRENCY=10
+NODE_ENV=development
+```
+
+Frontend configuration uses the API URL variable where required:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:4000
+```
+
+> **Never commit `.env`, `.env.local`, or production secrets to Git.**
+
+Use the repository's `.env.example` as the source for the exact environment configuration required by each application.
+
+---
+
+## 🛠️ Local Setup
+
+### Prerequisites
+
+* Node.js
+* pnpm
+* Docker Desktop / Docker Engine
+
+### 1. Clone the repository
+
+```bash
+git clone <your-repository-url>
+cd pulsewatch
+```
+
+### 2. Install dependencies
 
 ```bash
 pnpm install
 ```
 
-### 3. Start Postgres + Redis
+### 3. Start PostgreSQL and Redis
 
 ```bash
-pnpm docker:up
+docker compose up -d
 ```
 
-### 4. Configure environment
+### 4. Create environment files
 
-Each backend process reads its own `.env` from its working directory; the
-frontends read `.env.local`. Defaults already match `docker-compose.yml` and
-each other, so nothing needs editing for local dev:
+Create the required application environment files from `.env.example` and provide the local PostgreSQL, Redis, API, worker, and frontend configuration.
 
-```bash
-cp packages/db/.env.example packages/db/.env
-cp apps/api/.env.example apps/api/.env
-cp apps/worker/.env.example apps/worker/.env
-cp apps/web/.env.example apps/web/.env.local
-cp apps/dashboard/.env.example apps/dashboard/.env.local
-```
-
-### 5. Generate the Prisma client and run migrations
-
-```bash
-pnpm db:generate
-pnpm db:migrate     # prompts for a migration name on first run, e.g. "init"
-```
-
-> This needs internet access to download Prisma's query-engine binary the
-> first time. Behind a restrictive proxy/sandbox and it fails with a
-> checksum/403 error? Retry with
-> `PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 pnpm db:generate`.
-
-### 6. Run everything
+### 5. Start the monorepo
 
 ```bash
 pnpm dev
 ```
 
-`turbo run dev` starts all four apps in parallel with hot reload: web on
-`:3000`, dashboard on `:3001`, api on `:4000`, and the worker (no port, just
-consumes the queue). Open **http://localhost:3000**, click "Start Monitoring",
-add a monitor from `:3001` — within its interval you'll see `Check` rows
-appear and the dashboard update on its next 15s poll.
+After the services start, open the web and dashboard applications using the local ports configured by the repository.
 
-To run a subset:
+---
+
+## 🐳 Docker Setup
+
+Docker Compose is used to run the local infrastructure required by PulseWatch.
+
+### Start infrastructure
 
 ```bash
-pnpm dev:web         # just the landing page
-pnpm dev:dashboard    # just the dashboard (point NEXT_PUBLIC_API_URL at a
-                      # deployed API if you don't want the backend running locally)
-pnpm dev:backend      # just api + worker
+docker compose up -d
+```
+
+### Stop infrastructure
+
+```bash
+docker compose down
+```
+
+The repository also includes:
+
+```text
+docker-compose.yml
+docker-compose.prod.yml
+```
+
+The API and worker have dedicated Dockerfiles:
+
+```text
+apps/api/Dockerfile
+apps/worker/Dockerfile
+```
+
+### Docker Hub images
+
+The API and worker images are intended to be published as:
+
+```text
+swastik7/pulsewatch-api
+swastik7/pulsewatch-worker
+```
+
+Build examples:
+
+```bash
+docker build -f apps/api/Dockerfile -t swastik7/pulsewatch-api:latest .
+docker build -f apps/worker/Dockerfile -t swastik7/pulsewatch-worker:latest .
+```
+
+Push:
+
+```bash
+docker push swastik7/pulsewatch-api:latest
+docker push swastik7/pulsewatch-worker:latest
 ```
 
 ---
 
-## apps/web — landing page
+## 📜 Development Commands
 
-Hero background (`CRTWarp`, Three.js) and cursor trail (`GlowCursor`, ogl) are
-real WebGL shader components, not placeholders — see `apps/web/README.md`-
-style notes inline in `components/`. `StartMonitoringButton` just links to
-`NEXT_PUBLIC_APP_URL` (the dashboard) — no backend calls of its own.
+The root workspace is managed with **pnpm + Turborepo**.
 
-## apps/dashboard — the product
-
-- **Overview** (`/`) — stat cards + monitor table, backed by `GET /monitors`
-  plus a `GET /monitors/:id/checks?limit=20` sample per monitor (status,
-  latency, uptime, sparkline). Polls every 15s.
-- **Monitor detail** (`/monitors/[id]`) — fetches its own larger check window
-  (`limit=200`) directly for an accurate chart, independent of the overview's
-  lighter sample.
-- **Add monitor** (`/monitors/new`) — `POST /monitors`.
-- A monitor with zero checks yet shows as **pending** rather than being
-  assumed up — the worker hasn't polled it on its first interval yet.
-- `lib/api.ts` is the entire integration surface. Swapping the backend or
-  adding auth headers means editing one file.
-
-## apps/api + apps/worker — the backend
-
-Everything below is unchanged from the backend as designed — see inline
-comments in `apps/api/src/services/scheduler.service.ts` for how the
-BullMQ-repeatable-jobs scheduler works, and `apps/worker/src/checker.ts` for
-the actual HTTP check logic.
-
-### Data model
-
-```prisma
-model Monitor {
-  id                 String   @id @default(cuid())
-  name               String
-  url                String
-  regions            String[]   // e.g. ["us-east", "eu-west", "ap-south"]
-  expectedStatusCode Int      @default(200)
-  intervalSeconds    Int      @default(60)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  checks             Check[]
-}
-
-model Check {
-  id         String      @id @default(cuid())
-  monitorId  String
-  region     String
-  status     CheckStatus // UP | DOWN
-  latencyMs  Int
-  statusCode Int?
-  checkedAt  DateTime    @default(now())
-}
-```
-
-### API
-
-| Method | Path                             | Description                          |
-|--------|-----------------------------------|---------------------------------------|
-| GET    | `/health`                          | DB connectivity check                 |
-| GET    | `/monitors`                        | List all monitors                     |
-| POST   | `/monitors`                        | Create a monitor                      |
-| GET    | `/monitors/:id`                    | Get one monitor                       |
-| PATCH  | `/monitors/:id`                    | Update a monitor (partial)            |
-| DELETE | `/monitors/:id`                    | Delete a monitor                      |
-| GET    | `/monitors/:id/checks?limit=50`    | Recent checks for a monitor           |
-
-`POST /monitors` body:
-
-```json
-{
-  "name": "Production API",
-  "url": "https://api.example.com/health",
-  "regions": ["us-east", "eu-west"],
-  "expectedStatusCode": 200,
-  "intervalSeconds": 60
-}
-```
-
-Validation via `zod`; invalid bodies get `400` with a `details` field.
-`expectedStatusCode` (default `200`) and `intervalSeconds` (default `60`, min
-`10`) are optional. CORS is wide open by default — set `CORS_ORIGIN`
-(comma-separated) in production to restrict it to your web/dashboard URLs.
-
-### Other useful scripts
+Common project commands:
 
 ```bash
-pnpm db:studio     # Prisma Studio GUI on the local DB
-pnpm typecheck     # tsc --noEmit across every package/app
-pnpm docker:down   # stop Postgres + Redis
+pnpm install
+pnpm dev
+docker compose up -d
+docker compose down
 ```
+
+Database-related commands should be run using the Prisma scripts exposed by the repository's root/package configuration.
+
+For the exact command names available in a checkout, use:
+
+```bash
+pnpm run
+```
+
+and inspect the corresponding `package.json` scripts before adding new workflow assumptions.
 
 ---
 
-## Deploying
+## ☁️ Production Deployment
 
-**apps/web + apps/dashboard** are ordinary Next.js apps — deploy each to
-Vercel (or any Node host) with its root directory set to `apps/web` /
-`apps/dashboard`. Vercel auto-detects the pnpm workspace. Set
-`NEXT_PUBLIC_APP_URL` on web and `NEXT_PUBLIC_API_URL` on dashboard to your
-deployed URLs.
+The following is **deployment guidance**, not a claim that this infrastructure is already deployed.
 
-**apps/api + apps/worker + Postgres + Redis** — `docker-compose.prod.yml`
-builds and runs all four as one stack on a single host:
+A practical split deployment for the repository is:
 
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml run --rm migrate   # first time, and after schema changes
+```text
+                     GitHub
+                       │
+              ┌────────┴────────┐
+              │                 │
+              ▼                 ▼
+           Vercel             Render
+              │                 │
+        ┌─────┴─────┐     ┌─────┴──────┐
+        ▼           ▼     ▼            ▼
+      Web       Dashboard  API        Worker
+                              │          │
+                         ┌────┴──────────┘
+                         ▼
+                   Managed Services
+                    ├─ PostgreSQL
+                    └─ Redis
 ```
 
-`apps/api/Dockerfile` and `apps/worker/Dockerfile` use `turbo prune` so each
-image only contains that app plus the workspace packages it actually depends
-on — not the whole monorepo. Either image also builds standalone
-(`docker build -f apps/api/Dockerfile .` from the repo root) if you'd rather
-run api/worker on separate hosts (Railway, Fly, Render, ECS, …) — just point
-`DATABASE_URL`/`REDIS_URL` at managed Postgres/Redis instead of the compose
-services.
+### Suggested service mapping
 
-## Notes / known limitations
+| Component        | Suggested platform |
+| ---------------- | ------------------ |
+| `apps/web`       | Vercel             |
+| `apps/dashboard` | Vercel             |
+| `apps/api`       | Render             |
+| `apps/worker`    | Render             |
+| PostgreSQL       | Managed PostgreSQL |
+| Redis            | Managed Redis      |
 
-- **No auth yet** — add middleware in `apps/api/src/middleware` and wire it
-  into `app.ts` when ready; the dashboard's `lib/api.ts` is the one place a
-  frontend auth header would need to be added.
-- **Dashboard's overview stats are sampled**, not full history — the table
-  fetches the last 20 checks per monitor to keep the list fast. The detail
-  page fetches 200 for an accurate chart. A real aggregation endpoint
-  (`GET /monitors/:id/stats`) would remove the need for this if the check
-  volume grows large enough for it to matter.
-- **Regions are free-text strings**, not an enum, on purpose — new regions
-  don't need a migration. The dashboard's "add monitor" form just suggests
-  five (`iad1`, `fra1`, `sin1`, `lhr1`, `gru1`); the API accepts any
-  non-empty string.
-- **No retries** — a failed HTTP check is recorded as `DOWN` rather than
-  retried, since a retry would blur latency measurements.
-- **api/worker run via `tsx`** (transpile-at-runtime), not a compiled `dist/`
-  build — fine for the Docker images above (`pnpm start` runs cleanly there
-  since `prisma generate` is baked in at build time, no network needed at
-  container boot) and for small-to-medium scale. If you run `pnpm start`
-  outside Docker, run `pnpm db:generate` once as part of your deploy step
-  first — `start` deliberately doesn't chain it (unlike `dev`), so production
-  boot never depends on reaching Prisma's binary CDN at runtime.
-- **`docker-compose.prod.yml` is a separate stack from `docker-compose.yml`**
-  (its own Compose project name), so running both from the same directory —
-  dev's local Postgres/Redis and the full prod stack — never collides on
-  containers or volumes. They're alternatives, not layers: pick one per
-  environment.
+For production, configure the deployed services with the appropriate database, Redis, API URL, worker, and runtime environment variables.
+
+---
+
+## 📌 Project Status
+
+<div align="center">
+
+![Status](https://img.shields.io/badge/🚧-Active%20Development-8B5CF6?style=for-the-badge\&labelColor=1E1033)
+
+</div>
+
+PulseWatch is an actively developed monitoring platform with a monorepo architecture, separate API and worker services, PostgreSQL persistence, Redis/BullMQ scheduling, and Docker-based infrastructure.
+
+The project is designed around clear service boundaries so the monitoring workload can evolve independently from the user-facing applications.
+
+
+---
+
+<div align="center">
+
+### ⚡ PulseWatch
+
+**Monitor. Measure. Respond.**
+
+Built with TypeScript, Next.js, Node.js, PostgreSQL, Redis, BullMQ, and Docker.
+
+</div>
